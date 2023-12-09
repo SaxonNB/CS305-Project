@@ -5,7 +5,7 @@ import os
 import socket
 import threading
 import uuid
-
+import json
 
 def parse_args():
     parser = argparse.ArgumentParser(description='HTTP File Manager Server')
@@ -28,18 +28,17 @@ def start_server(host, port):
 
 
 def validate_session(session_cookie):
-    print(sessions)
-    print(session_cookie)
+    #print(sessions)
+    #print(session_cookie)
     sess_id = session_cookie.split("session-id=")[1]
-    print(sess_id)
+
     # Check if the session cookie is valid and not expired
     if sess_id in sessions:
-        print('session is in used')
+
         _, expiration_time = sessions[sess_id]
-        print(expiration_time)
-        print(type(expiration_time))
+
         result = expiration_time > time.time()
-        print(f'session 是否超时{result}')
+
         return result
     return False
 
@@ -79,12 +78,102 @@ def send_response_with_cookie(client_socket, session_id):
     # Send a response with Set-Cookie header containing the new session ID
     response_headers = f'HTTP/1.1 200 OK\r\nSet-Cookie: session-id={session_id}; Path=/\r\n\r\n'
     client_socket.send(response_headers.encode('utf-8'))
+def parse_query_string(query_string):
+    query_params = {}
+    if query_string:
+        # Splitting the query string into key-value pairs
+        pairs = query_string.split('&')
+        for pair in pairs:
+            # Splitting each pair into key and value
+            key_value = pair.split('=')
+            # Decoding key and value (replace '+' with ' ' and then decode as URL)
+            key = key_value[0].replace('+', ' ').strip()
+            value = key_value[1].replace('+', ' ').strip() if len(key_value) > 1 else None
+            query_params[key] = value
+    return query_params
 
+def handle_get(request_data,client_socket):
+    method, full_path, headers, _ = parse_http_request(request_data)
+    # Splitting the path and handling query parameters
+    path, _, query_string = full_path.partition('?')
+    query_params = parse_query_string(query_string)
 
-def handle_get(client_socket, path):
     file_path = os.path.join(root_directory, path.lstrip('/'))
-    print()
+    print(file_path)
 
+    # Check if the SUSTech-HTTP query parameter is present
+    sustech_http_param = query_params.get('SUSTech-HTTP', None)
+
+    if sustech_http_param is None:
+        # If SUSTech-HTTP parameter is missing, return 400 Bad Request
+        response = 'HTTP/1.1 400 Bad Request\r\n\r\n'
+        return response.encode('utf-8')
+
+    if not os.path.exists(file_path):
+        print('not exist')
+        # If the requested path does not exist, return 404 Not Found
+        response = 'HTTP/1.1 404 Not Found\r\n\r\n'
+        return response.encode('utf-8')
+
+    if os.path.isdir(file_path):
+        print('is dir')
+        # If the requested path is a directory
+        if sustech_http_param == '0':
+            # SUSTech-HTTP=0: return an HTML page showing the file tree
+            directory_listing = generate_directory_listing(file_path)
+            response = f'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {len(directory_listing)}\r\n\r\n{directory_listing}'
+            print(response)
+        elif sustech_http_param == '1':
+            # SUSTech-HTTP=1: return a list of files in the directory
+            files_list = [f for f in os.listdir(file_path) if os.path.isfile(os.path.join(file_path, f))]
+            print(files_list)
+            response = f'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {len(files_list)}\r\n\r\n{json.dumps(files_list)}'
+            print(response)
+        else:
+            # Invalid value for SUSTech-HTTP parameter
+            response = 'HTTP/1.1 400 Bad Request\r\n\r\n'
+    elif os.path.isfile(file_path):
+        print('is file')
+        # If the requested path is a file
+        with open(file_path, 'rb') as file:
+            file_content = file.read()
+            content_type = get_content_type(file_path)
+            response = f'HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {len(file_content)}\r\n\r\n'
+            response = response.encode('utf-8') + file_content
+    else:
+        # If the path does not exist, return 404 Not Found
+        response = 'HTTP/1.1 404 Not Found\r\n\r\n'
+
+    return  client_socket.send(response.encode('utf-8'))
+
+
+def get_content_type(file_path):
+    file_extension = os.path.splitext(file_path)[1].lower()
+    mime_types = {
+        '.html': 'text/html',
+        '.css': 'text/css',
+        '.js': 'application/javascript',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.gif': 'image/gif',
+        '.txt': 'text/plain',
+        '.pdf': 'application/pdf',
+    }
+    # Default to binary data if the file extension is not recognized
+    return mime_types.get(file_extension, 'application/octet-stream')
+
+
+def generate_directory_listing(directory_path):
+    # Generate an HTML page showing the file tree of the directory
+    directory_listing = f'<h1>Index of {directory_path}</h1>'
+    directory_listing += '<ul>'
+    for file in os.listdir(directory_path):
+        file_path = os.path.join(directory_path, file)
+        if os.path.isdir(file_path):
+            file += '/'
+        directory_listing += f'<li><a href="{file}">{file}</a></li>'
+    directory_listing += '</ul>'
+    return directory_listing.encode('utf-8')
 
 
 def handle_client(client_socket):
@@ -129,8 +218,8 @@ def handle_client(client_socket):
             # Call the appropriate function based on the request
                 if method == 'GET':
                     print('get get')
-                    print(request_data)
-                    handle_get(client_socket, path)
+                  # print(request_data)
+                    handle_get(request_data,client_socket)
                 elif method == 'POST':
                     print('get post')
                     print(request_data)
