@@ -1,6 +1,7 @@
 import argparse
 import base64
 import datetime
+import json
 import os
 import socket
 import threading
@@ -68,9 +69,49 @@ def send_response_with_cookie(client_socket, session_id):
     client_socket.send(response_headers.encode('utf-8'))
 
 
-def handle_get(client_socket, path):
-    file_path = os.path.join(root_directory, path.lstrip('/'))
+def generate_directory_listing(file_path):
+    pass
 
+
+def get_files_in_directory(file_path):
+    pass
+
+
+def handle_get(client_socket, path,query_params):
+    file_path = os.path.join(root_directory, path.lstrip('/'))
+    # Check if the requested path is a directory
+    if os.path.isdir(file_path):
+        sustech_http_param = query_params.get('SUSTech-HTTP', '0')
+
+        if sustech_http_param == '0':
+            # If SUSTech-HTTP=0, generate and send an HTML page with the directory listing
+            directory_listing = generate_directory_listing(file_path)
+            response_headers = 'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: ' + str(
+                len(directory_listing)) + '\r\n\r\n'
+            client_socket.send(response_headers.encode('utf-8') + directory_listing.encode('utf-8'))
+        elif sustech_http_param == '1':
+            # If SUSTech-HTTP=1, send a JSON response with the list of files in the directory
+            files_in_directory = get_files_in_directory(file_path)
+            json_response = json.dumps(files_in_directory)
+            response_headers = 'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ' + str(
+                len(json_response)) + '\r\n\r\n'
+            client_socket.send(response_headers.encode('utf-8') + json_response.encode('utf-8'))
+        else:
+            # Invalid SUSTech-HTTP value, return a 400 Bad Request response
+            response_headers = 'HTTP/1.1 400 Bad Request\r\nContent-Type: text/html\r\n\r\n'
+            client_socket.send(response_headers.encode('utf-8') + b'<html><body><h1>400 Bad Request</h1></body></html>')
+
+    elif os.path.isfile(file_path):
+        # If it's a file, send the file content with appropriate Content-Type header
+        with open(file_path, 'rb') as file:
+            file_content = file.read()
+            content_type = get_content_type(file_path)
+            response_headers = f'HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {len(file_content)}\r\n\r\n'
+            client_socket.send(response_headers.encode('utf-8') + file_content)
+    else:
+        # If the path does not exist, return a 404 Not Found response
+        response_headers = 'HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\n\r\n'
+        client_socket.send(response_headers.encode('utf-8') + b'<html><body><h1>404 Not Found</h1></body></html>')
 
 
 def handle_client(client_socket):
@@ -111,7 +152,7 @@ def handle_client(client_socket):
                 keep_alive = connection_header == 'keep-alive'
             # Call the appropriate function based on the request
                 if method == 'GET':
-                    handle_get(client_socket, path)
+                    handle_get(client_socket, path,headers)
                 elif method == 'POST':
                     pass
                 # Add more methods as needed (e.g., DELETE, PUT)
