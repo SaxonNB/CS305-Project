@@ -1,6 +1,6 @@
 import argparse
 import base64
-import datetime
+import time
 import os
 import socket
 import threading
@@ -28,23 +28,36 @@ def start_server(host, port):
 
 
 def validate_session(session_cookie):
+    print(sessions)
+    print(session_cookie)
+    sess_id = session_cookie.split("session-id=")[1]
+    print(sess_id)
     # Check if the session cookie is valid and not expired
-    if session_cookie in sessions:
-        _, expiration_time = sessions[session_cookie]
-        return expiration_time > datetime.now()
+    if sess_id in sessions:
+        print('session is in used')
+        _, expiration_time = sessions[sess_id]
+        print(expiration_time)
+        print(type(expiration_time))
+        result = expiration_time > time.time()
+        print(f'session 是否超时{result}')
+        return result
     return False
 
 
 def check_authorization(auth_header):
+    valid_credentials = {'username': 'password'}  # Replace with actual user credentials
     # Extract and decode the base64-encoded credentials
     _, encoded_info = auth_header.split(' ')
     decoded_info = base64.b64decode(encoded_info).decode('utf-8')
-
-    # Check the credentials (You should replace this with your own user authentication logic)
-    # For example, you can store user credentials in a dictionary
-    # and check if the provided credentials match any user's credentials
-    valid_credentials = {'username': 'password'}  # Replace with actual user credentials
-    return decoded_info in valid_credentials.values()
+    # print(decoded_info)
+    result = False
+    username , password = decoded_info.split(":")[0], decoded_info.split(":")[1]
+    # print(f'user is {username}, pass is {password}')
+    if username in valid_credentials:
+        if password == valid_credentials[username]:
+            result = True
+    # print(result)
+    return result
 
 
 def send_unauthorized_response(client_socket):
@@ -89,18 +102,21 @@ def handle_client(client_socket):
             if not session_cookie or not validate_session(session_cookie):
                 # If no session cookie or invalid session, check Authorization
                 auth_header = headers.get('Authorization', None)
-
+                # print(auth_header)
+                # print(session_cookie)
                 if not auth_header or not check_authorization(auth_header):
                     # Send 401 Unauthorized response if Authorization header is not present or credentials are invalid
                     send_unauthorized_response(client_socket)
+                    print('登陆失败')
                     return
 
                 # Authorization successful, generate a new session ID
                 username = get_username(auth_header)
                 session_id = str(uuid.uuid4())
-                expiration_time = datetime.now() + datetime.timedelta(
-                    minutes=30)  # Set session expiration time (adjust as needed)
+                expiration_time = time.time() + 360000.0
+                print(expiration_time)
                 sessions[session_id] = (username, expiration_time)
+                
                 send_response_with_cookie(client_socket, session_id)
             else:
                 # If a valid session cookie is present, continue processing the request
@@ -111,8 +127,12 @@ def handle_client(client_socket):
                 keep_alive = connection_header == 'keep-alive'
             # Call the appropriate function based on the request
                 if method == 'GET':
+                    print('get get')
+                    print(request_data)
                     handle_get(client_socket, path)
                 elif method == 'POST':
+                    print('get post')
+                    print(request_data)
                     pass
                 # Add more methods as needed (e.g., DELETE, PUT)
 
