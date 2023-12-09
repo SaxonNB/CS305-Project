@@ -83,6 +83,7 @@ def send_response_with_cookie(client_socket, session_id):
 
 def handle_get(client_socket, path):
     file_path = os.path.join(root_directory, path.lstrip('/'))
+    print()
 
 
 
